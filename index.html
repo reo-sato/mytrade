@@ -159,21 +159,47 @@
         }
 
         // ---- Yahoo Finance から USDJPY の5分足OHLCを取得 ---------------------
-        async function fetchUsdJpy5m() {
-          const url =
-            "https://query1.finance.yahoo.com/v8/finance/chart/USDJPY=X" +
-            "?interval=5m&range=7d"; // 過去7日間・5分足
+        // ---- Yahoo Finance から USDJPY の5分足OHLCを取得（CORS プロキシ経由） ---------------------
+async function fetchUsdJpy5m() {
+  // 本来取りに行きたい先
+  const targetUrl =
+    "https://query1.finance.yahoo.com/v8/finance/chart/USDJPY=X" +
+    "?interval=5m&range=7d";
 
-          const res = await fetch(url);
-          if (!res.ok) throw new Error("Yahoo Finance へのアクセスに失敗しました");
+  // AllOrigins の CORS プロキシを経由して取得
+  const proxyUrl =
+    "https://api.allorigins.win/raw?url=" + encodeURIComponent(targetUrl);
 
-          const json = await res.json();
-          const result =
-            json.chart && json.chart.result && json.chart.result[0];
-          if (!result) {
-            console.log("Yahoo Finance response:", json);
-            throw new Error("Yahoo Finance のデータ形式が想定と異なります");
-          }
+  const res = await fetch(proxyUrl);
+  if (!res.ok) throw new Error("Yahoo Finance へのアクセスに失敗しました");
+
+  const json = await res.json();
+  const result = json.chart && json.chart.result && json.chart.result[0];
+  if (!result) {
+    console.log("Yahoo Finance response:", json);
+    throw new Error("Yahoo Finance のデータ形式が想定と異なります");
+  }
+
+  const timestamps = result.timestamp;
+  const indicators = result.indicators.quote[0];
+
+  const ohlc = timestamps
+    .map((ts, i) => ({
+      time: ts, // Unix time (秒)
+      open: indicators.open[i],
+      high: indicators.high[i],
+      low: indicators.low[i],
+      close: indicators.close[i],
+    }))
+    .filter((o) => o.open != null); // 欠損行を除外
+
+  if (ohlc.length === 0) {
+    throw new Error("OHLC データが空です");
+  }
+
+  return ohlc;
+}
+
 
           const timestamps = result.timestamp;
           const indicators = result.indicators.quote[0];
