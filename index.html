@@ -206,6 +206,7 @@ const m = dateField.match(/(20\d{2})\.(\d{1,2})(?:\.(\d{1,2}))?/);
 
         // ---- あなたのFX CSV専用：CSV -> trades配列に変換 -------------------
         // ---- 取引CSV（タブ区切り） -> trades配列に変換 -------------------
+// ---- 取引CSV（タブ区切り） -> trades配列に変換 -------------------
 function parseTradeCsv(csvText) {
   const lines = csvText.trim().split(/\r?\n/);
   if (lines.length < 2) {
@@ -289,6 +290,7 @@ function parseTradeCsv(csvText) {
   trades.sort((a, b) => a.timeSec - b.timeSec);
   return trades;
 }
+
 
 
         // ---- 5分足CSVが選ばれたとき -------------------------------------
