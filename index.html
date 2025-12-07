@@ -285,7 +285,9 @@ function parseCandleCsv(csvText) {
               setStatus("5分足CSV エラー: " + e.message);
             }
           };
-          reader.readAsText(file, "shift-jis");  // 必要に応じて utf-8 に変更
+          reader.readAsText(file);          // ← 第2引数を消す
+// もしくは reader.readAsText(file, "utf-8");
+
         });
 
         // ---- 取引CSVが選ばれたとき ---------------------------------------
@@ -325,7 +327,9 @@ function parseCandleCsv(csvText) {
               setStatus("取引CSV エラー: " + e.message);
             }
           };
-          reader.readAsText(file, "shift-jis");
+          reader.readAsText(file);          // ← 第2引数を消す
+// もしくは reader.readAsText(file, "utf-8");
+
         });
       });
     </script>
