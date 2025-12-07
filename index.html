@@ -207,15 +207,24 @@ const m = dateField.match(/(20\d{2})\.(\d{1,2})(?:\.(\d{1,2}))?/);
         // ---- あなたのFX CSV専用：CSV -> trades配列に変換 -------------------
         // ---- 取引CSV（タブ区切り） -> trades配列に変換 -------------------
 // ---- 取引CSV（タブ区切り） -> trades配列に変換 -------------------
+// ---- 取引CSV（SJIS/カンマ区切り） -> trades配列に変換 -------------------
 function parseTradeCsv(csvText) {
   const lines = csvText.trim().split(/\r?\n/);
   if (lines.length < 2) {
     throw new Error("取引データ行がありません");
   }
 
-  // ---- ヘッダ行は「タブ専用」で分割 ----
-  const headerCells = lines[0].replace(/^"|"$/g, "").split(/\t+/);
-  const header = headerCells.map(h => h.trim());
+  // 1行目（ヘッダ）："注文番号,約定日,建玉番号,..." という形
+  let rawHeader = lines[0].trim();
+  if (rawHeader.startsWith('"') && rawHeader.endsWith('"')) {
+    rawHeader = rawHeader.slice(1, -1);
+  }
+
+  // タブではなくカンマで区切る
+  const headerCells = rawHeader.split(/,+/);
+  const header = headerCells.map((h) => h.trim());
+
+  console.log("headerCells =", headerCells); // デバッグ用
 
   const idxTime  = header.indexOf("約定日");
   const idxPair  = header.indexOf("通貨ペア");
@@ -223,7 +232,6 @@ function parseTradeCsv(csvText) {
   const idxPrice = header.indexOf("決済価格(建単価)");
 
   if (idxTime === -1 || idxSide === -1 || idxPrice === -1) {
-    console.log("headerCells =", headerCells);   // ←デバッグ用
     throw new Error("取引CSV のヘッダに 約定日/決済価格(建単価)/取引 が必要です");
   }
 
@@ -233,28 +241,32 @@ function parseTradeCsv(csvText) {
     let s = lines[i].trim();
     if (!s) continue;
 
-    // ---- データ行も「タブ専用」で分割 ----
     if (s.startsWith('"') && s.endsWith('"')) {
       s = s.slice(1, -1);
     }
-    const cols = s.split(/\t+/);
+    const cols = s.split(/,+/);
 
     const timeStr  = (cols[idxTime]  || "").trim();
-    const pairStr  = (cols[idxPair]  || "").trim();
+    const pairStr  = idxPair !== -1 ? (cols[idxPair] || "").trim() : "";
     const sideStr  = (cols[idxSide]  || "").trim();
     const priceStr = (cols[idxPrice] || "").trim();
 
     if (!timeStr || !priceStr) continue;
 
-    // ---- 日付補正 ----
-    const [datePart, timePart] = timeStr.split(/\s+/);
-    const normDate = datePart.replace(/\//g, "-");
+    // "2025/12/6 2:24" → ISO形式に変換
+    const [datePart, timePartRaw] = timeStr.split(/\s+/);
+    if (!datePart || !timePartRaw) continue;
 
-    let [h, m] = (timePart || "0:0").split(":");
-    h = h.padStart(2, "0");
-    m = m.padStart(2, "0");
+    const normDate = datePart.replace(/\//g, "-"); // 2025-12-6
+    const tParts = timePartRaw.split(":");
+    let hh = tParts[0] || "0";
+    let mm = tParts[1] || "0";
+    let ss = tParts[2] || "0";
+    if (hh.length === 1) hh = "0" + hh;
+    if (mm.length === 1) mm = "0" + mm;
+    if (ss.length === 1) ss = "0" + ss;
 
-    const iso = `${normDate}T${h}:${m}:00`;
+    const iso = `${normDate}T${hh}:${mm}:${ss}`;
     const ts = Date.parse(iso);
     const price = Number(priceStr);
     if (!Number.isFinite(ts) || !Number.isFinite(price)) continue;
@@ -277,6 +289,7 @@ function parseTradeCsv(csvText) {
   trades.sort((a, b) => a.timeSec - b.timeSec);
   return trades;
 }
+
 
 
 
@@ -348,7 +361,8 @@ function parseTradeCsv(csvText) {
               setStatus("取引CSV エラー: " + e.message);
             }
           };
-          reader.readAsText(file);          // ← 第2引数を消す
+          reader.readAsText(file, "shift-jis");
+          // ← 第2引数を消す
 // もしくは reader.readAsText(file, "utf-8");
 
         });
