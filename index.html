@@ -104,6 +104,7 @@
         // ---- 5分足CSV -> OHLC ---------------------------------------------
         // ---- MT系の "<DATE>\t<TIME>\t<OPEN>..." 形式をパース ----------------------
 // ---- MT形式 "<DATE>\t<TIME>\t<OPEN>..." をパース ----------------------
+// ---- MT形式 "<DATE>\t<TIME>\t<OPEN>..." をパース ----------------------
 function parseCandleCsv(csvText) {
   const lines = csvText.trim().split(/\r?\n/);
   if (lines.length < 2) throw new Error("足データの行がありません");
@@ -115,7 +116,7 @@ function parseCandleCsv(csvText) {
     if (s.startsWith('"') && s.endsWith('"')) {
       s = s.slice(1, -1);
     }
-    return s.split(/[\t,]+/);
+    return s.split(/[\t,]+/); // タブ or カンマ
   };
 
   // 1行目（ヘッダ）
@@ -128,8 +129,8 @@ function parseCandleCsv(csvText) {
   const idxTime = header.findIndex((h) => h.includes("TIME"));
   const idxOpen = header.findIndex((h) => h.includes("OPEN"));
   const idxHigh = header.findIndex((h) => h.includes("HIGH"));
-  const idxLow = header.findIndex((h) => h.includes("LOW"));
-  const idxClose = header.findIndex((h) => h.includes("CLOSE"));
+  const idxLow  = header.findIndex((h) => h.includes("LOW"));
+  const idxClose= header.findIndex((h) => h.includes("CLOSE"));
 
   if (
     idxDate === -1 ||
@@ -152,29 +153,31 @@ function parseCandleCsv(csvText) {
 
     const dateField = (cells[idxDate] || "").trim();
     const timeField = (cells[idxTime] || "").trim();
-    const openStr = (cells[idxOpen] || "").trim();
-    const highStr = (cells[idxHigh] || "").trim();
-    const lowStr = (cells[idxLow] || "").trim();
-    const closeStr = (cells[idxClose] || "").trim();
+    const openStr   = (cells[idxOpen] || "").trim();
+    const highStr   = (cells[idxHigh] || "").trim();
+    const lowStr    = (cells[idxLow]  || "").trim();
+    const closeStr  = (cells[idxClose]|| "").trim();
 
     if (!dateField || !timeField || !openStr || !highStr || !lowStr || !closeStr)
       continue;
 
-    // dateField の中から "YYYY.MM.DD" を探す（余計な数字が付いていてもOK）
-    const m = dateField.match(/(\d{4})\.(\d{1,2})\.(\d{1,2})/);
+    // dateField の中から "YYYY.MM" または "YYYY.MM.DD" を探す
+    // 例: "4294967295.2025.10" or "4294967295.2025.10.01"
+    const m = dateField.match(/(\d{4})\.(\d{1,2})(?:\.(\d{1,2}))?/);
     if (!m) continue;
     let [, year, month, day] = m;
+    if (!day) day = "1";              // 日が無ければ 1 日とみなす
     if (month.length === 1) month = "0" + month;
-    if (day.length === 1) day = "0" + day;
+    if (day.length === 1)   day   = "0" + day;
 
     // "YYYY-MM-DDTHH:MM:SS" にして Date.parse
     const iso = `${year}-${month}-${day}T${timeField}`;
     const ts = Date.parse(iso);
     if (!Number.isFinite(ts)) continue;
 
-    const open = Number(openStr);
-    const high = Number(highStr);
-    const low = Number(lowStr);
+    const open  = Number(openStr);
+    const high  = Number(highStr);
+    const low   = Number(lowStr);
     const close = Number(closeStr);
     if (![open, high, low, close].every(Number.isFinite)) continue;
 
@@ -194,6 +197,7 @@ function parseCandleCsv(csvText) {
   out.sort((a, b) => a.time - b.time);
   return out;
 }
+
 
 
 
