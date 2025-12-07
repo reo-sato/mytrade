@@ -102,57 +102,91 @@
         let candleData = null;
 
         // ---- 5分足CSV -> OHLC ---------------------------------------------
-        function parseCandleCsv(csvText) {
-          const lines = csvText.trim().split(/\r?\n/);
-          if (lines.length < 2) throw new Error("足データの行がありません");
+        // ---- MT系の "<DATE>\t<TIME>\t<OPEN>..." 形式をパース ----------------------
+function parseCandleCsv(csvText) {
+  const lines = csvText.trim().split(/\r?\n/);
+  if (lines.length < 2) throw new Error("足データの行がありません");
 
-          const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
+  // 1行目（ヘッダ）をタブで分割
+  const headerRaw = lines[0].replace(/^"|"$/g, ""); // 行頭行末の " を削除
+  const header = headerRaw
+    .split(/\t/)
+    .map((h) => h.replace(/[<>"]/g, "").trim().toUpperCase());
 
-          const idxTime = header.findIndex((h) => h.includes("time") || h.includes("日時") || h.includes("date"));
-          const idxOpen = header.findIndex((h) => h.includes("open") || h.includes("始値"));
-          const idxHigh = header.findIndex((h) => h.includes("high") || h.includes("高値"));
-          const idxLow  = header.findIndex((h) => h.includes("low") || h.includes("安値"));
-          const idxClose= header.findIndex((h) => h.includes("close") || h.includes("終値") || h.includes("close"));
+  const idxDate = header.findIndex((h) => h === "DATE");
+  const idxTime = header.findIndex((h) => h === "TIME");
+  const idxOpen = header.findIndex((h) => h === "OPEN");
+  const idxHigh = header.findIndex((h) => h === "HIGH");
+  const idxLow = header.findIndex((h) => h === "LOW");
+  const idxClose = header.findIndex((h) => h === "CLOSE");
 
-          if (idxTime === -1 || idxOpen === -1 || idxHigh === -1 || idxLow === -1 || idxClose === -1) {
-            throw new Error("5分足CSV のヘッダは time,open,high,low,close を含む必要があります");
-          }
+  if (
+    idxDate === -1 ||
+    idxTime === -1 ||
+    idxOpen === -1 ||
+    idxHigh === -1 ||
+    idxLow === -1 ||
+    idxClose === -1
+  ) {
+    throw new Error("5分足CSV のヘッダに <DATE><TIME><OPEN><HIGH><LOW><CLOSE> が必要です");
+  }
 
-          const out = [];
+  const out = [];
 
-          for (let i = 1; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
-            const cols = line.split(",");
+  for (let i = 1; i < lines.length; i++) {
+    let line = lines[i].trim();
+    if (!line) continue;
 
-            const tStr = (cols[idxTime] || "").trim();
-            const oStr = (cols[idxOpen] || "").trim();
-            const hStr = (cols[idxHigh] || "").trim();
-            const lStr = (cols[idxLow]  || "").trim();
-            const cStr = (cols[idxClose]|| "").trim();
+    // 先頭と末尾の " を削除
+    line = line.replace(/^"|"$/g, "");
 
-            if (!tStr || !oStr || !hStr || !lStr || !cStr) continue;
+    const cols = line.split(/\t/);
 
-            const ts = Date.parse(tStr.replace(/\//g, "-"));
-            if (!Number.isFinite(ts)) continue;
+    const dateField = (cols[idxDate] || "").trim();
+    const timeField = (cols[idxTime] || "").trim();
 
-            const open  = Number(oStr);
-            const high  = Number(hStr);
-            const low   = Number(lStr);
-            const close = Number(cStr);
+    const openStr = (cols[idxOpen] || "").trim();
+    const highStr = (cols[idxHigh] || "").trim();
+    const lowStr  = (cols[idxLow]  || "").trim();
+    const closeStr= (cols[idxClose]|| "").trim();
 
-            if (![open, high, low, close].every(Number.isFinite)) continue;
+    if (!dateField || !timeField || !openStr || !highStr || !lowStr || !closeStr)
+      continue;
 
-            out.push({
-              time: Math.floor(ts / 1000),
-              open, high, low, close,
-            });
-          }
+    // DATE フィールドから "YYYY.MM.DD" を抽出（MT特有の余計な値を無視）
+    const m = dateField.match(/(\d{4})\.(\d{1,2})\.(\d{1,2})/);
+    if (!m) continue;
+    let [, year, month, day] = m;
+    if (month.length === 1) month = "0" + month;
+    if (day.length === 1) day = "0" + day;
 
-          if (out.length === 0) throw new Error("有効な足データがありません");
-          out.sort((a, b) => a.time - b.time);
-          return out;
-        }
+    // ISOっぽい文字列にして Date.parse する
+    const isoStr = `${year}-${month}-${day}T${timeField}`;
+    const ts = Date.parse(isoStr);
+    if (!Number.isFinite(ts)) continue;
+
+    const open  = Number(openStr);
+    const high  = Number(highStr);
+    const low   = Number(lowStr);
+    const close = Number(closeStr);
+    if (![open, high, low, close].every(Number.isFinite)) continue;
+
+    out.push({
+      time: Math.floor(ts / 1000), // Lightweight Charts は秒
+      open,
+      high,
+      low,
+      close,
+    });
+  }
+
+  if (out.length === 0) throw new Error("有効な足データがありません");
+
+  // 時間順にソート
+  out.sort((a, b) => a.time - b.time);
+  return out;
+}
+
 
         // ---- あなたのFX CSV専用：CSV -> trades配列に変換 -------------------
         function parseTradeCsv(csvText) {
