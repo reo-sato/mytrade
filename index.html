@@ -94,12 +94,14 @@
         // ---- あなたのFX CSV専用：CSV -> trades配列に変換 ---------------------------
 function parseCsvToTrades(csvText) {
   const lines = csvText.trim().split(/\r?\n/);
-  if (lines.length < 2) throw new Error("データ行がありません");
+  if (lines.length < 2) {
+    throw new Error("データ行がありません");
+  }
 
   // 1行目（ヘッダ）
-  const header = lines[0].split(",").map((h) => h.trim());
+  const header = lines[0].split(",").map(h => h.trim());
 
-  // 想定ヘッダ: 注文番号,約定日,建玉番号,通貨ペア,取引,数量,決済価格(建単価),...
+  // 想定ヘッダ
   const idxTime = header.indexOf("約定日");
   const idxPair = header.indexOf("通貨ペア");
   const idxSide = header.indexOf("取引");
@@ -116,6 +118,7 @@ function parseCsvToTrades(csvText) {
     if (!line) continue;
 
     const cols = line.split(",");
+
     const timeStr = (cols[idxTime] || "").trim();
     const pairStr = idxPair !== -1 ? (cols[idxPair] || "").trim() : "";
     const sideStr = (cols[idxSide] || "").trim();
@@ -123,24 +126,27 @@ function parseCsvToTrades(csvText) {
 
     if (!timeStr || !priceStr) continue;
 
-    // ここで通貨ペアをフィルタ（米ドル-円だけ使う）
+    // 米ドル-円以外は無視（必要なら消してOK）
     if (pairStr && pairStr !== "米ドル-円") {
-      continue; // 他の通貨ペアはスキップ
+      continue;
     }
 
-    const ts = Date.parse(timeStr.replace(/\//g, "-")); // "2025/12/06 02:24:50" → Date
+    // "2025/12/06 02:24:50" → timestamp
+    const ts = Date.parse(timeStr.replace(/\//g, "-"));
     const price = Number(priceStr);
 
-    if (!Number.isFinite(ts) || !Number.isFinite(price)) continue;
+    if (!Number.isFinite(ts) || !Number.isFinite(price)) {
+      continue;
+    }
 
-    // side を buy/sell に正規化
+    // sideを正規化
     let side = "buy";
     if (sideStr.includes("売")) side = "sell";
     if (sideStr.includes("買")) side = "buy";
 
     trades.push({
       timeMs: ts,
-      timeSec: Math.floor(ts / 1000), // Lightweight Charts は秒
+      timeSec: Math.floor(ts / 1000),
       price,
       side,
     });
@@ -150,7 +156,6 @@ function parseCsvToTrades(csvText) {
     throw new Error("米ドル-円の有効な取引がありません");
   }
 
-  // 時間順にソート
   trades.sort((a, b) => a.timeSec - b.timeSec);
   return trades;
 }
