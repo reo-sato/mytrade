@@ -205,63 +205,91 @@ const m = dateField.match(/(20\d{2})\.(\d{1,2})(?:\.(\d{1,2}))?/);
 
 
         // ---- あなたのFX CSV専用：CSV -> trades配列に変換 -------------------
-        function parseTradeCsv(csvText) {
-          const lines = csvText.trim().split(/\r?\n/);
-          if (lines.length < 2) {
-            throw new Error("取引データ行がありません");
-          }
+        // ---- 取引CSV（タブ区切り） -> trades配列に変換 -------------------
+function parseTradeCsv(csvText) {
+  const lines = csvText.trim().split(/\r?\n/);
+  if (lines.length < 2) {
+    throw new Error("取引データ行がありません");
+  }
 
-          const header = lines[0].split(",").map((h) => h.trim());
+  // 1行を「前後のダブルクォート削除 → タブ or カンマで分割」
+  const splitRow = (line) => {
+    let s = line.trim();
+    if (!s) return [];
+    if (s.startsWith('"') && s.endsWith('"')) {
+      s = s.slice(1, -1);
+    }
+    return s.split(/[\t,]+/); // タブ or カンマ
+  };
 
-          const idxTime  = header.indexOf("約定日");
-          const idxPair  = header.indexOf("通貨ペア");
-          const idxSide  = header.indexOf("取引");
-          const idxPrice = header.indexOf("決済価格(建単価)");
+  // ヘッダ行
+  const headerCells = splitRow(lines[0]);
+  const header = headerCells.map((h) => h.trim());
 
-          if (idxTime === -1 || idxSide === -1 || idxPrice === -1) {
-            throw new Error("取引CSV のヘッダに 約定日/決済価格(建単価)/取引 が必要です");
-          }
+  const idxTime  = header.indexOf("約定日");
+  const idxPair  = header.indexOf("通貨ペア");
+  const idxSide  = header.indexOf("取引");
+  const idxPrice = header.indexOf("決済価格(建単価)");
 
-          const trades = [];
+  if (idxTime === -1 || idxSide === -1 || idxPrice === -1) {
+    throw new Error("取引CSV のヘッダに 約定日/決済価格(建単価)/取引 が必要です");
+  }
 
-          for (let i = 1; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
+  const trades = [];
 
-            const cols = line.split(",");
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
 
-            const timeStr  = (cols[idxTime]  || "").trim();
-            const pairStr  = idxPair !== -1 ? (cols[idxPair] || "").trim() : "";
-            const sideStr  = (cols[idxSide]  || "").trim();
-            const priceStr = (cols[idxPrice] || "").trim();
+    const cols = splitRow(line);
 
-            if (!timeStr || !priceStr) continue;
+    const timeStr  = (cols[idxTime]  || "").trim();
+    const pairStr  = idxPair !== -1 ? (cols[idxPair] || "").trim() : "";
+    const sideStr  = (cols[idxSide]  || "").trim();
+    const priceStr = (cols[idxPrice] || "").trim();
 
-            // ここで通貨ペアを絞り込みたければ：
-            // if (pairStr && pairStr !== "米ドル-円") continue;
+    if (!timeStr || !priceStr) continue;
 
-            const ts = Date.parse(timeStr.replace(/\//g, "-"));
-            const price = Number(priceStr);
-            if (!Number.isFinite(ts) || !Number.isFinite(price)) continue;
+    // 通貨ペアで絞りたい場合はここで
+    // if (pairStr && pairStr !== "米ドル-円") continue;
 
-            let side = "buy";
-            if (sideStr.includes("売")) side = "sell";
-            if (sideStr.includes("買")) side = "buy";
+    // 例: "2025/12/6 2:24" → "2025-12-6T02:24:00"
+    const [datePart, timePart] = timeStr.split(/\s+/);
+    if (!datePart || !timePart) continue;
 
-            trades.push({
-              timeSec: Math.floor(ts / 1000),
-              price,
-              side,
-            });
-          }
+    const normDate = datePart.replace(/\//g, "-"); // 2025-12-6
+    const tParts = timePart.split(":");
+    let hh = tParts[0] || "0";
+    let mm = tParts[1] || "0";
+    let ss = tParts[2] || "0";
+    if (hh.length === 1) hh = "0" + hh;
+    if (mm.length === 1) mm = "0" + mm;
+    if (ss.length === 1) ss = "0" + ss;
 
-          if (trades.length === 0) {
-            throw new Error("有効な取引がありません");
-          }
+    const iso = `${normDate}T${hh}:${mm}:${ss}`;
+    const ts = Date.parse(iso);
+    const price = Number(priceStr);
+    if (!Number.isFinite(ts) || !Number.isFinite(price)) continue;
 
-          trades.sort((a, b) => a.timeSec - b.timeSec);
-          return trades;
-        }
+    let side = "buy";
+    if (sideStr.includes("売")) side = "sell";
+    if (sideStr.includes("買")) side = "buy";
+
+    trades.push({
+      timeSec: Math.floor(ts / 1000),
+      price,
+      side,
+    });
+  }
+
+  if (trades.length === 0) {
+    throw new Error("有効な取引がありません");
+  }
+
+  trades.sort((a, b) => a.timeSec - b.timeSec);
+  return trades;
+}
+
 
         // ---- 5分足CSVが選ばれたとき -------------------------------------
         candleFileInput.addEventListener("change", () => {
