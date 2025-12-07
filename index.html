@@ -213,19 +213,9 @@ function parseTradeCsv(csvText) {
     throw new Error("取引データ行がありません");
   }
 
-  // 1行を「前後のダブルクォート削除 → タブ or カンマで分割」
-  const splitRow = (line) => {
-    let s = line.trim();
-    if (!s) return [];
-    if (s.startsWith('"') && s.endsWith('"')) {
-      s = s.slice(1, -1);
-    }
-    return s.split(/[\t,]+/); // タブ or カンマ
-  };
-
-  // ヘッダ行
-  const headerCells = splitRow(lines[0]);
-  const header = headerCells.map((h) => h.trim());
+  // ---- ヘッダ行は「タブ専用」で分割 ----
+  const headerCells = lines[0].replace(/^"|"$/g, "").split(/\t+/);
+  const header = headerCells.map(h => h.trim());
 
   const idxTime  = header.indexOf("約定日");
   const idxPair  = header.indexOf("通貨ペア");
@@ -233,41 +223,38 @@ function parseTradeCsv(csvText) {
   const idxPrice = header.indexOf("決済価格(建単価)");
 
   if (idxTime === -1 || idxSide === -1 || idxPrice === -1) {
+    console.log("headerCells =", headerCells);   // ←デバッグ用
     throw new Error("取引CSV のヘッダに 約定日/決済価格(建単価)/取引 が必要です");
   }
 
   const trades = [];
 
   for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
+    let s = lines[i].trim();
+    if (!s) continue;
 
-    const cols = splitRow(line);
+    // ---- データ行も「タブ専用」で分割 ----
+    if (s.startsWith('"') && s.endsWith('"')) {
+      s = s.slice(1, -1);
+    }
+    const cols = s.split(/\t+/);
 
     const timeStr  = (cols[idxTime]  || "").trim();
-    const pairStr  = idxPair !== -1 ? (cols[idxPair] || "").trim() : "";
+    const pairStr  = (cols[idxPair]  || "").trim();
     const sideStr  = (cols[idxSide]  || "").trim();
     const priceStr = (cols[idxPrice] || "").trim();
 
     if (!timeStr || !priceStr) continue;
 
-    // 通貨ペアで絞りたい場合はここで
-    // if (pairStr && pairStr !== "米ドル-円") continue;
-
-    // 例: "2025/12/6 2:24" → "2025-12-6T02:24:00"
+    // ---- 日付補正 ----
     const [datePart, timePart] = timeStr.split(/\s+/);
-    if (!datePart || !timePart) continue;
+    const normDate = datePart.replace(/\//g, "-");
 
-    const normDate = datePart.replace(/\//g, "-"); // 2025-12-6
-    const tParts = timePart.split(":");
-    let hh = tParts[0] || "0";
-    let mm = tParts[1] || "0";
-    let ss = tParts[2] || "0";
-    if (hh.length === 1) hh = "0" + hh;
-    if (mm.length === 1) mm = "0" + mm;
-    if (ss.length === 1) ss = "0" + ss;
+    let [h, m] = (timePart || "0:0").split(":");
+    h = h.padStart(2, "0");
+    m = m.padStart(2, "0");
 
-    const iso = `${normDate}T${hh}:${mm}:${ss}`;
+    const iso = `${normDate}T${h}:${m}:00`;
     const ts = Date.parse(iso);
     const price = Number(priceStr);
     if (!Number.isFinite(ts) || !Number.isFinite(price)) continue;
@@ -290,6 +277,7 @@ function parseTradeCsv(csvText) {
   trades.sort((a, b) => a.timeSec - b.timeSec);
   return trades;
 }
+
 
 
 
