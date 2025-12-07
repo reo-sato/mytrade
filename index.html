@@ -163,7 +163,10 @@ function parseCandleCsv(csvText) {
 
     // dateField の中から "YYYY.MM" または "YYYY.MM.DD" を探す
     // 例: "4294967295.2025.10" or "4294967295.2025.10.01"
-    const m = dateField.match(/(\d{4})\.(\d{1,2})(?:\.(\d{1,2}))?/);
+   // dateField の中から "20YY.MM" または "20YY.MM.DD" を探す
+// 例: "4294967295.2025.10" → year=2025, month=10
+const m = dateField.match(/(20\d{2})\.(\d{1,2})(?:\.(\d{1,2}))?/);
+
     if (!m) continue;
     let [, year, month, day] = m;
     if (!day) day = "1";              // 日が無ければ 1 日とみなす
