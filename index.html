@@ -201,25 +201,7 @@ async function fetchUsdJpy5m() {
 }
 
 
-          const timestamps = result.timestamp;
-          const indicators = result.indicators.quote[0];
-
-          const ohlc = timestamps
-            .map((ts, i) => ({
-              time: ts, // Unix time (秒)
-              open: indicators.open[i],
-              high: indicators.high[i],
-              low: indicators.low[i],
-              close: indicators.close[i],
-            }))
-            .filter((o) => o.open != null);
-
-          if (ohlc.length === 0) {
-            throw new Error("OHLC データが空です");
-          }
-
-          return ohlc;
-        }
+          
 
         let cachedOhlc = null;
 
