@@ -91,7 +91,7 @@
           wickDownColor: "#ccc",
         });
 
-       // ---- あなたのFX CSV専用：CSV -> trades配列に変換 ---------------------------
+        // ---- あなたのFX CSV専用：CSV -> trades配列に変換 ---------------------------
 function parseCsvToTrades(csvText) {
   const lines = csvText.trim().split(/\r?\n/);
   if (lines.length < 2) throw new Error("データ行がありません");
