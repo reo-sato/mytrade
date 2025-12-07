@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="utf-8" />
-    <title>FX CSV Viewer (USDJPY 5分足)</title>
+    <title>FX CSV Viewer (ローカル5分足 + 取引)</title>
     <style>
       body {
         margin: 0;
@@ -17,7 +17,7 @@
         display: flex;
         flex-wrap: wrap;
         align-items: center;
-        gap: 8px;
+        gap: 12px;
         font-size: 14px;
       }
       header input[type="file"] {
@@ -39,12 +39,19 @@
 
   <body>
     <header>
-      <div>FX CSV を読み込んで <b>USD/JPY 5分足</b> にポジションを表示</div>
+      <div>5分足CSV と 取引CSV を読み込んでチャートに表示</div>
+
       <label>
-        CSV:
-        <input type="file" id="fileInput" accept=".csv" />
+        5分足CSV:
+        <input type="file" id="candleFile" accept=".csv" />
       </label>
-      <div id="status">CSV ファイルを選択してください。</div>
+
+      <label>
+        取引CSV:
+        <input type="file" id="tradeFile" accept=".csv" />
+      </label>
+
+      <div id="status">まず 5分足CSV を選択してください。</div>
     </header>
 
     <div id="chart"></div>
@@ -52,14 +59,15 @@
     <script>
       document.addEventListener("DOMContentLoaded", () => {
         const chartContainer = document.getElementById("chart");
-        const fileInput = document.getElementById("fileInput");
+        const candleFileInput = document.getElementById("candleFile");
+        const tradeFileInput = document.getElementById("tradeFile");
         const statusEl = document.getElementById("status");
 
         function setStatus(msg) {
           statusEl.textContent = msg;
         }
 
-        // ---- チャートセットアップ（ローソク足シリーズ） --------------------
+        // ---- チャートセットアップ ----------------------------------------
         const chart = LightweightCharts.createChart(chartContainer, {
           layout: {
             background: { type: "solid", color: "#111" },
@@ -91,24 +99,77 @@
           wickDownColor: "#ccc",
         });
 
-        // ---- あなたのFX CSV専用：CSV -> trades配列に変換 --------------------
-        function parseCsvToTrades(csvText) {
+        let candleData = null;
+
+        // ---- 5分足CSV -> OHLC ---------------------------------------------
+        function parseCandleCsv(csvText) {
           const lines = csvText.trim().split(/\r?\n/);
-          if (lines.length < 2) {
-            throw new Error("データ行がありません");
+          if (lines.length < 2) throw new Error("足データの行がありません");
+
+          const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
+
+          const idxTime = header.findIndex((h) => h.includes("time") || h.includes("日時") || h.includes("date"));
+          const idxOpen = header.findIndex((h) => h.includes("open") || h.includes("始値"));
+          const idxHigh = header.findIndex((h) => h.includes("high") || h.includes("高値"));
+          const idxLow  = header.findIndex((h) => h.includes("low") || h.includes("安値"));
+          const idxClose= header.findIndex((h) => h.includes("close") || h.includes("終値") || h.includes("close"));
+
+          if (idxTime === -1 || idxOpen === -1 || idxHigh === -1 || idxLow === -1 || idxClose === -1) {
+            throw new Error("5分足CSV のヘッダは time,open,high,low,close を含む必要があります");
           }
 
-          // 1行目（ヘッダ）
+          const out = [];
+
+          for (let i = 1; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+            const cols = line.split(",");
+
+            const tStr = (cols[idxTime] || "").trim();
+            const oStr = (cols[idxOpen] || "").trim();
+            const hStr = (cols[idxHigh] || "").trim();
+            const lStr = (cols[idxLow]  || "").trim();
+            const cStr = (cols[idxClose]|| "").trim();
+
+            if (!tStr || !oStr || !hStr || !lStr || !cStr) continue;
+
+            const ts = Date.parse(tStr.replace(/\//g, "-"));
+            if (!Number.isFinite(ts)) continue;
+
+            const open  = Number(oStr);
+            const high  = Number(hStr);
+            const low   = Number(lStr);
+            const close = Number(cStr);
+
+            if (![open, high, low, close].every(Number.isFinite)) continue;
+
+            out.push({
+              time: Math.floor(ts / 1000),
+              open, high, low, close,
+            });
+          }
+
+          if (out.length === 0) throw new Error("有効な足データがありません");
+          out.sort((a, b) => a.time - b.time);
+          return out;
+        }
+
+        // ---- あなたのFX CSV専用：CSV -> trades配列に変換 -------------------
+        function parseTradeCsv(csvText) {
+          const lines = csvText.trim().split(/\r?\n/);
+          if (lines.length < 2) {
+            throw new Error("取引データ行がありません");
+          }
+
           const header = lines[0].split(",").map((h) => h.trim());
 
-          // 想定ヘッダ
-          const idxTime = header.indexOf("約定日");
-          const idxPair = header.indexOf("通貨ペア");
-          const idxSide = header.indexOf("取引");
+          const idxTime  = header.indexOf("約定日");
+          const idxPair  = header.indexOf("通貨ペア");
+          const idxSide  = header.indexOf("取引");
           const idxPrice = header.indexOf("決済価格(建単価)");
 
           if (idxTime === -1 || idxSide === -1 || idxPrice === -1) {
-            throw new Error("ヘッダに 約定日/決済価格(建単価)/取引 が見つかりません");
+            throw new Error("取引CSV のヘッダに 約定日/決済価格(建単価)/取引 が必要です");
           }
 
           const trades = [];
@@ -119,31 +180,25 @@
 
             const cols = line.split(",");
 
-            const timeStr = (cols[idxTime] || "").trim();
-            const pairStr = idxPair !== -1 ? (cols[idxPair] || "").trim() : "";
-            const sideStr = (cols[idxSide] || "").trim();
+            const timeStr  = (cols[idxTime]  || "").trim();
+            const pairStr  = idxPair !== -1 ? (cols[idxPair] || "").trim() : "";
+            const sideStr  = (cols[idxSide]  || "").trim();
             const priceStr = (cols[idxPrice] || "").trim();
 
             if (!timeStr || !priceStr) continue;
 
-            // 米ドル-円以外は無視（必要ならこの if を消してOK）
-            if (pairStr && pairStr !== "米ドル-円") {
-              continue;
-            }
+            // ここで通貨ペアを絞り込みたければ：
+            // if (pairStr && pairStr !== "米ドル-円") continue;
 
             const ts = Date.parse(timeStr.replace(/\//g, "-"));
             const price = Number(priceStr);
-
-            if (!Number.isFinite(ts) || !Number.isFinite(price)) {
-              continue;
-            }
+            if (!Number.isFinite(ts) || !Number.isFinite(price)) continue;
 
             let side = "buy";
             if (sideStr.includes("売")) side = "sell";
             if (sideStr.includes("買")) side = "buy";
 
             trades.push({
-              timeMs: ts,
               timeSec: Math.floor(ts / 1000),
               price,
               side,
@@ -151,81 +206,58 @@
           }
 
           if (trades.length === 0) {
-            throw new Error("米ドル-円の有効な取引がありません");
+            throw new Error("有効な取引がありません");
           }
 
           trades.sort((a, b) => a.timeSec - b.timeSec);
           return trades;
         }
 
-        // ---- Yahoo Finance から USDJPY の5分足OHLCを取得 ---------------------
-        // ---- Yahoo Finance から USDJPY の5分足OHLCを取得（CORS プロキシ経由） ---------------------
-async function fetchUsdJpy5m() {
-  // 本来取りに行きたい先
-  const targetUrl =
-    "https://query1.finance.yahoo.com/v8/finance/chart/USDJPY=X" +
-    "?interval=5m&range=7d";
-
-  // AllOrigins の CORS プロキシを経由して取得
-  const proxyUrl =
-    "https://api.allorigins.win/raw?url=" + encodeURIComponent(targetUrl);
-
-  const res = await fetch(proxyUrl);
-  if (!res.ok) throw new Error("Yahoo Finance へのアクセスに失敗しました");
-
-  const json = await res.json();
-  const result = json.chart && json.chart.result && json.chart.result[0];
-  if (!result) {
-    console.log("Yahoo Finance response:", json);
-    throw new Error("Yahoo Finance のデータ形式が想定と異なります");
-  }
-
-  const timestamps = result.timestamp;
-  const indicators = result.indicators.quote[0];
-
-  const ohlc = timestamps
-    .map((ts, i) => ({
-      time: ts, // Unix time (秒)
-      open: indicators.open[i],
-      high: indicators.high[i],
-      low: indicators.low[i],
-      close: indicators.close[i],
-    }))
-    .filter((o) => o.open != null); // 欠損行を除外
-
-  if (ohlc.length === 0) {
-    throw new Error("OHLC データが空です");
-  }
-
-  return ohlc;
-}
-
-
-          
-
-        let cachedOhlc = null;
-
-        // ---- CSV ファイルが選ばれたときの処理 -----------------------------
-        fileInput.addEventListener("change", () => {
-          const file = fileInput.files?.[0];
+        // ---- 5分足CSVが選ばれたとき -------------------------------------
+        candleFileInput.addEventListener("change", () => {
+          const file = candleFileInput.files?.[0];
           if (!file) {
-            setStatus("CSV ファイルを選択してください。");
+            setStatus("まず 5分足CSV を選択してください。");
             return;
           }
 
           const reader = new FileReader();
-          reader.onload = async () => {
+          reader.onload = () => {
             try {
-              const csvText = reader.result;
-              const trades = parseCsvToTrades(String(csvText));
-              setStatus(
-                `CSV 読み込み成功: ${trades.length} 件の取引。5分足データを取得中...`
-              );
+              const text = reader.result;
+              candleData = parseCandleCsv(String(text));
+              candleSeries.setData(candleData);
 
-              if (!cachedOhlc) {
-                cachedOhlc = await fetchUsdJpy5m();
-              }
-              candleSeries.setData(cachedOhlc);
+              const from = candleData[0].time;
+              const to   = candleData[candleData.length - 1].time;
+              chart.timeScale().setVisibleRange({ from, to });
+
+              setStatus(`5分足 ${candleData.length} 本を読み込みました。次に 取引CSV を選択してください。`);
+            } catch (e) {
+              console.error(e);
+              setStatus("5分足CSV エラー: " + e.message);
+            }
+          };
+          reader.readAsText(file, "shift-jis");  // 必要に応じて utf-8 に変更
+        });
+
+        // ---- 取引CSVが選ばれたとき ---------------------------------------
+        tradeFileInput.addEventListener("change", () => {
+          const file = tradeFileInput.files?.[0];
+          if (!file) {
+            setStatus("取引CSV を選択してください。");
+            return;
+          }
+          if (!candleData) {
+            setStatus("先に 5分足CSV を読み込んでください。");
+            return;
+          }
+
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const text = reader.result;
+              const trades = parseTradeCsv(String(text));
 
               const markers = trades.map((t) => ({
                 time: t.timeSec,
@@ -237,18 +269,15 @@ async function fetchUsdJpy5m() {
               candleSeries.setMarkers(markers);
 
               const from = trades[0].timeSec - 60 * 60;
-              const to = trades[trades.length - 1].timeSec + 60 * 60;
+              const to   = trades[trades.length - 1].timeSec + 60 * 60;
               chart.timeScale().setVisibleRange({ from, to });
 
-              setStatus(
-                `USD/JPY 5分足 ${cachedOhlc.length} 本 + 取引 ${trades.length} 件を表示しました。`
-              );
+              setStatus(`5分足 ${candleData.length} 本 + 取引 ${trades.length} 件を表示しました。`);
             } catch (e) {
               console.error(e);
-              setStatus("エラー: " + e.message);
+              setStatus("取引CSV エラー: " + e.message);
             }
           };
-
           reader.readAsText(file, "shift-jis");
         });
       });
