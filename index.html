@@ -157,6 +157,19 @@ function parseCandleCsv(csvText) {
     const highStr   = (cells[idxHigh] || "").trim();
     const lowStr    = (cells[idxLow]  || "").trim();
     const closeStr  = (cells[idxClose]|| "").trim();
+let open  = Number(openStr);
+let high  = Number(highStr);
+let low   = Number(lowStr);
+let close = Number(closeStr);
+
+// OPENが0 または不正値の場合 → 前足の close を使う
+if (!Number.isFinite(open) || open === 0) {
+    if (out.length > 0) {
+        open = out[out.length - 1].close;   // 前の足の close を使用
+    } else {
+        open = close; // 最初の足だけ仕方なく close を使う
+    }
+}
 
     if (!dateField || !timeField || !openStr || !highStr || !lowStr || !closeStr)
       continue;
